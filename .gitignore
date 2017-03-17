@@ -1,0 +1,9 @@
+*.csv
+*.p
+*.txt
+*.pyc
+*.ipynb
+*.pyc
+*.out
+*.zip
+*~
