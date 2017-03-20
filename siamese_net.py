@@ -16,8 +16,7 @@ from torch.autograd import Variable
 
 
 import time
-from sub import subMNIST 
-
+from utils import *
 
 # In[2]:
 
@@ -36,7 +35,10 @@ test_loader = torch.utils.data.DataLoader(
     batch_size=64, shuffle=True)
 
 
-# In[100]:
+train_loader = BatchLoader(np.expand_dims(train_loader.dataset.train_data.numpy() ,axis=1) / 255., train_loader.dataset.train_labels.numpy())
+#test_loader = BatchLoader(np.expand_dims(test_loader.dataset.test_data.numpy(),axis=1) / 255. , test_loader.dataset.test_labels.numpy())
+
+test_loader = BatchLoader((np.expand_dims(test_loader.dataset.test_data.numpy(),axis=1) / 255.)[0:1000] , test_loader.dataset.test_labels.numpy()[0:1000])
 
 
 class SiameseNN(nn.Module):
@@ -80,7 +82,7 @@ class SiameseNN(nn.Module):
         return (x.size()[1:])
     
     def forward(self,x):
-        
+
         x = F.relu(self.dropout[0](self.bn[0](self.conv_layers[0](x))))
         x = F.max_pool2d(x,2)
         x = F.relu(self.dropout[1](self.bn[1](self.conv_layers[1](x))))
@@ -94,9 +96,9 @@ class SiameseNN(nn.Module):
         
         return self.output(x)
     
-    def cost(self,x1,x2,y1,y2):
+    def cost(self,x1,x2,y):
 
-        mask = Variable((y1 == y2).float())
+        mask = Variable(y.float())
         mask = mask.unsqueeze(1)
         
         z1 = model(x1)
@@ -109,14 +111,13 @@ class SiameseNN(nn.Module):
         return((-L).mean())
     
  
-    def predict_prob(self,x1,x2,y1,y2):
+    def predict_prob(self,x1,x2,y):
 
-        mask = Variable((y1 == y2).float())
+        mask = Variable(y.float())
                 
         mask = mask
         
         z1 = model(x1)
-        
         z2 = model(x2)
         
         P = F.sigmoid(self.dist_layer((z1-z2).abs()))
@@ -126,16 +127,18 @@ class SiameseNN(nn.Module):
         prob_same =  P[mask.byte()] 
         
         prob_diff  = (1-P)[(1-mask).byte()]
-        
+
+        return prob_same.data.numpy() , prob_diff.data.numpy()
+
+        '''
         if len(prob_diff.size()) == 0:
             return(prob_same.mean() ,None )
         elif len(prob_same.size()) == 0:
             return(None ,prob_diff.mean() )
         else:
             return(prob_same.mean() ,prob_diff.mean() )
+        '''
 
-print(train_loader.train_labels)
-quit()
 model = SiameseNN()
 
 #model = torch.load('model.p')
@@ -151,23 +154,18 @@ def train():
     
     avg_loss = 0
     model.train()
-    batch_iter = iter(train_loader)    
     start = time.time()
 
-    while True:
+    for i in range(train_loader.length):
             
-        data1,target1 = next(batch_iter,[None,None])
-        data2,target2 = next(batch_iter,[None,None])
-        
-        if data2 is None or data1 is None or data1.size()[0] != data2.size()[0]:
-            break
+        data1, data2 ,target = train_loader.getBatch()
             
         data1 = Variable(data1)
         data2 = Variable(data2)
 
         opt.zero_grad()
         
-        loss = model.cost(data1,data2,target1,target2)        
+        loss = model.cost(data1,data2,target)
         loss.backward()
 
         opt.step()
@@ -175,7 +173,7 @@ def train():
         avg_loss += loss        
     
         
-    print("TRAINING loss: ", (avg_loss / len(train_loader) ).data[0] , ' time: ' , time.time() - start)
+    print("TRAINING loss: ", (avg_loss / train_loader.length ).data[0] , ' time: ' , time.time() - start)
 
         
                 
@@ -183,50 +181,36 @@ def test():
     
     avg_loss = 0
     model.eval()
-    batch_iter = iter(test_loader)    
     start = time.time()
-    prob_same = 0
-    prob_diff = 0
-    i =0
-    j=0
+    prob_same = []
+    prob_diff = []
 
-    while True:
+    for i in range(test_loader.length):
             
-        data1,target1 = next(batch_iter,[None,None])
-        data2,target2 = next(batch_iter,[None,None])
-        
-        if data2 is None or data1 is None or data1.size()[0] != data2.size()[0]:
-            break
-            
+        data1,data2,target =  test_loader.getBatch()
+
         data1 = Variable(data1)
-        data2 = Variable(data2)
-        
-        loss = model.cost(data1,data2,target1,target2)        
-        
-        p_same,p_diff  = model.predict_prob(data1,data2,target1,target2)
-        
-        if prob_same is None:
-            prob_diff += p_diff
-            i+=1
-        if prob_diff is None:
-            prob_same += p_same
-            j+=1
-        else:
-            prob_diff += p_diff
-            i+=1
-            prob_same += p_same
-            j+=1
+        data2 = Variable(data2.float())
 
+        loss = model.cost(data1,data2,target)
+        
+        p_same,p_diff  = model.predict_prob(data1,data2,target)
 
+        prob_diff.append(p_diff)
+        prob_same.append((p_same))
 
         avg_loss += loss        
-        
-    print("TESTING loss: ", (avg_loss / len(test_loader) ).data[0] , ' time: ' , time.time() - start)
-    print("Prob Same: "  ,(prob_same / j).data[0] , "  Prob Diff: " , (prob_diff / i).data[0] )
 
+    prob_same = np.concatenate(prob_same,axis=0).mean()
+    prob_diff = np.concatenate(prob_diff,axis=0).mean()
 
-for i in range(10):
-    train()
-    test()
+    print("TESTING loss: ", (avg_loss / test_loader.length ).data[0] , ' time: ' , time.time() - start)
+    print("Prob Same: "  ,prob_same , "  Prob Diff: " , prob_diff )
 
-torch.save(model,open('model.p','wb'))
+test()
+
+#for i in range(10):
+#    train()
+#    test()
+
+#torch.save(model,open('model.p','wb'))
