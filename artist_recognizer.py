@@ -13,12 +13,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-
+from networks import *
 
 import time
 from utils import *
-
-# In[2]:
 
 train_loader = torch.utils.data.DataLoader(
     datasets.MNIST('../data', train=True, transform=transforms.Compose([
@@ -137,6 +135,8 @@ if not load:
 
     print("Creating Model")
     model = SiameseNN()
+    model = GRU_Model()
+
 
 else:
     print("Loading Model")
@@ -220,10 +220,10 @@ def test():
     print("TESTING loss: ", (avg_loss / length ).data[0] , ' time: ' , time.time() - start)
     print("Prob Same: "  ,prob_same.mean(), " Acc Same " , acc_same , "  Prob Diff: " , prob_diff.mean() , " Acc Diff:  " , acc_diff )
 
-for i in range(10):
+#for i in range(10):
 
-    train()
-    test()
+#    train()
+#    test()
     
 
-torch.save(model,open('model.p','wb'))
+#torch.save(model,open('model.p','wb'))
