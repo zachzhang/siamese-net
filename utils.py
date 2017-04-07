@@ -1,80 +1,125 @@
+import pandas as pd
+from sklearn.feature_extraction.text import CountVectorizer
+import pickle
 import numpy as np
+import argparse
 import torch
-
-class BatchLoader():
-    def __init__(self, X, y, batch_size=64):
-
-        self.batch_size = batch_size
-
-        self.num_labels = y.max() + 1
-
-        self.X = X
-        self.y = y
-
-        self.priors = [(y == i).sum() / float(X.shape[0]) for i in range(self.num_labels)]
-        self._X = [X[y == i] for i in range(self.num_labels)]
-
-        self.batch_index = 0
-
-        self.newDataset()
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchvision import datasets, transforms
+from torch.autograd import Variable
+import pickle
+import torchvision
 
 
-    def newDataset(self):
 
-        # Get pairs of data with different labels
-        shuffle = np.random.permutation(self.X.shape[0])
+def tag_freq(tags):
+    indiv_tf = {}
 
-        m = (self.y != self.y[shuffle])
+    for tag in tags:
 
-        x1 = self.X[m]
-        x2 = self.X[shuffle][m]
+        for t in tag:
 
-        y_new = np.zeros(x1.shape[0])
+            if t in indiv_tf:
+                indiv_tf[t] += 1
+            else:
+                indiv_tf[t] = 1
 
-        X1 = [x1]
-        X2 = [x2]
+    tf = sorted(list(indiv_tf.items()), key=lambda x: -x[1])
 
-        # add pairs of data with the same label
-        for i in range(self.num_labels):
-            num_sample = np.floor(self.priors[i] * len(m))
-            X1.append(self._X[i][np.random.randint(0, self._X[i].shape[0], num_sample,dtype='int')])
-            X2.append(self._X[i][np.random.randint(0, self._X[i].shape[0], num_sample,dtype='int')])
+    return tf
 
-        X1 = np.vstack(X1)
-        X2 = np.vstack(X2)
 
-        y_new = np.concatenate([y_new, np.ones(X1.shape[0] - y_new.shape[0])], axis=0)
+def word_freq(lyrics, n):
+    vect = CountVectorizer(max_features=n, stop_words='english')
 
-        shuffle = np.random.permutation(X1.shape[0])[0:int(X1.shape[0]//3) ]
+    bag = vect.fit_transform(lyrics).toarray()
 
-        self.X1 = torch.from_numpy(X1[shuffle]).float()
-        self.X2 = torch.from_numpy(X2[shuffle]).float()
-        self._y = torch.from_numpy(y_new[shuffle])
+    freq = list(bag.sum(axis=0))
 
-        self.length = int(np.ceil(self.X1.size()[0] / self.batch_size))
+    word_freq = [(word, f) for word, f in zip(list(vect.vocabulary_.keys()), freq)]
 
-        self.batch_index=0
+    word_freq = sorted(word_freq, key=lambda x: -x[1])
 
-    def reset(self):
-        self.batch_index=0
+    return word_freq
 
-    def getBatch(self):
 
-        if (self.batch_index + 1) * self.batch_size > self.X1.size()[0]:
-            low = self.batch_index * self.batch_size
-            high = self.X1.size()[0]
+def clean_tags(raw):
+    if raw == '':
+        return []
+
+    tags = raw[1:-2].split("]")
+    tags = [tag.split("'")[1] for tag in tags]
+    return tags
+
+
+def tag2index(tags, tag_map):
+    indices = []
+
+    for tag in tags:
+
+        x = []
+        for e in tag:
+
+            if e in tag_map:
+                x.append(tag_map[e])
+
+        indices.append(x)
+    return indices
+
+
+def sent2seq(text, key, tok, l):
+    words = tok(text)
+
+    unknown = len(key.keys()) + 1
+
+    seq = []
+    for word in words:
+        if word in key:
+            seq.append(key[word] + 1)
         else:
-            low = self.batch_index * self.batch_size
-            high = (self.batch_index + 1) * self.batch_size
+            seq.append(unknown)
 
-        self.batch_index += 1
+    if len(seq) > l:
+        return seq[:l]
+    else:
+        padding = [0 for i in range(l - len(seq))]
 
-        return (self.X1[low:high], self.X2[low:high] ,  self._y[low:high])
+        return (padding + seq)
+
+    return seq
+
+
+def load_glove(vocab):
+    embedding_mat = [np.zeros(50)]
+    new_vocab = {}
+
+    count = 0
+
+    with open('glove.6B.50d.txt') as f:
+
+        for i, line in enumerate(f):
+
+            s = line.split()
+
+            if s[0] in vocab:
+                embedding_mat.append(np.asarray(s[1:]))
+                new_vocab[s[0]] = count
+                count += 1
+
+                if len(list(new_vocab.keys())) == len(list(vocab.keys())):
+                    return new_vocab, np.array(embedding_mat)
+
+    embedding_mat.append(np.random.randn(50))
+
+    return new_vocab, np.array(embedding_mat).astype(np.float32())
+
 
 
 def newDataset(X, y):
 
-    num_labels = y.max() + 1
+    num_labels = int(y.max() + 1)
 
     priors = [(y == i).sum() / float(X.shape[0]) for i in range(num_labels)]
     _X = [X[y == i] for i in range(num_labels)]
@@ -96,9 +141,10 @@ def newDataset(X, y):
     
         num_sample = np.floor(priors[i] * len(m))
         
-        X1.append( _X[i][np.random.randint(0, _X[i].shape[0], num_sample,dtype='int')])
-        
-        X2.append(_X[i][np.random.randint(0, _X[i].shape[0], num_sample,dtype='int')])
+        if _X[i].shape[0] > 0:
+
+            X1.append( _X[i][np.random.randint(0, _X[i].shape[0], num_sample,dtype='int')])
+            X2.append(_X[i][np.random.randint(0, _X[i].shape[0], num_sample,dtype='int')])
         
         
     X1 = np.vstack(X1)
@@ -120,7 +166,6 @@ def newDataset(X, y):
 
     return(X1,X2,_y,length)
 
-
 def getBatch(X1,X2,y,batch_index):
 
     batch_size = 64
@@ -137,4 +182,3 @@ def getBatch(X1,X2,y,batch_index):
         high = (batch_index + 1) * batch_size
 
     return (X1[low:high], X2[low:high] , y[low:high])
-

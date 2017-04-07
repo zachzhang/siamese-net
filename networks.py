@@ -10,18 +10,19 @@ from torch.autograd import Variable
 class GRU_Model(nn.Module):
 
 
-    def __init__(self,h,glove,num_out):
+    def __init__(self,h, glove, embed_dim , num_labels):
         super(GRU_Model, self).__init__()
 
         self.h = h
         self.embed = nn.Embedding(glove.size()[0], glove.size()[1], padding_idx=0 )
         self.embed.weight = nn.Parameter(glove )
 
-        self.lstm = nn.GRU(glove.size()[1], h, 1, batch_first=True)
+        self.gru = nn.GRU(glove.size()[1], h, 1, batch_first=True)
 
-        self.output_layer = nn.Linear(h, num_out,bias=False)
+        self.output_layer = nn.Linear(h, embed_dim,bias=False)
+        self.dist_layer = nn.Linear(embed_dim, 1,bias=False)
 
-        self.params = list(self.embed.parameters()) + list(self.output_layer.parameters()) + list(self.lstm.parameters())
+        self.params = list(self.embed.parameters()) + list(self.output_layer.parameters()) + list(self.gru.parameters())
 
 
     def forward(self,x):
@@ -30,13 +31,45 @@ class GRU_Model(nn.Module):
 
         E = self.embed(x)
         
-        z = self.lstm(E, h0)[0][:, -1, :]
+        z = self.gru(E, h0)[0][:, -1, :]
 
         y_hat = self.output_layer(z)
 
         return y_hat
 
+    def cost(self,x1,x2,y):
 
+        #mask = Variable(y.float())
+        mask = y
+        mask = mask.unsqueeze(1)
+        
+        z1 = self.forward(x1)
+        z2 = self.forward(x2)
+
+        P = F.sigmoid(self.dist_layer((z1-z2).abs()))
+         
+        L = mask* torch.log(P) + (1-mask) * torch.log(1-P)
+    
+        return((-L).mean())
+    
+ 
+    def predict_prob(self,x1,x2,y):
+
+        mask = Variable(y.float())
+                        
+        z1 = self.forward(x1)
+        z2 = self.forward(x2)
+        
+        P = F.sigmoid(self.dist_layer((z1-z2).abs()))
+        P = P.squeeze()
+        
+        prob_same =  P[mask.byte()] 
+        
+        prob_diff  = (1-P)[(1-mask).byte()]
+
+        return prob_same.data.numpy() , prob_diff.data.numpy()
+        
+    
 class CNN(nn.Module):
 
     def __init__(self,glove,num_out,seq_len):

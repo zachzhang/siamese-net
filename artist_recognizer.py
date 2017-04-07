@@ -1,8 +1,3 @@
-
-# coding: utf-8
-
-# In[1]:
-
 from __future__ import print_function
 import pickle 
 import numpy as np
@@ -13,145 +8,61 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-from networks import *
-
+import torchvision
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import f1_score
+from sklearn.metrics import roc_auc_score
 import time
+import sys
 from utils import *
+from networks import *
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import hamming_loss
 
-train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=True, transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))
-                   ]) , download=True ),
-    batch_size=64, shuffle=True)
+#import theano.sandbox.cuda.basic_ops as sbcuda
 
-test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))
-                   ]), download=True ),
-    batch_size=64, shuffle=True)
+n = 20000
+seq_len = 80
+h = 256
+num_tags = 100
+batch_size = 64
 
+gpu = False
 
-print("Creaing Dataset")
+print("loading data")
+start = time.time()
+glove = np.load('glove.npy')
 
-#train_loader = BatchLoader(np.expand_dims(train_loader.dataset.train_data.numpy() ,axis=1) / 255., train_loader.dataset.train_labels.numpy())
-#test_loader = BatchLoader(np.expand_dims(test_loader.dataset.test_data.numpy(),axis=1) / 255. , test_loader.dataset.test_labels.numpy())
+features = np.load('features.npy')
+y = np.load('y.npy')
 
+features = torch.from_numpy(features)
+y = torch.from_numpy(y).float()
 
+glove = torch.from_numpy(glove)
 
-class SiameseNN(nn.Module):
-    
-    def __init__(self):
-        super(SiameseNN, self).__init__()
-    
-        self.arc = [1,32 , 64, 64, 128]
-        shapes = list(zip(self.arc[:-1], self.arc[1:]))
+train_idx = int(np.floor(features.size()[0] * 8 / 10))
 
-        kernels = [5,3,3,3]
-        
-        self.conv_layers = [ nn.Conv2d(s[0], s[1], kernel_size=k) for s,k in zip(shapes,kernels)  ]
-        self.dropout = [nn.Dropout2d(.5) for k in kernels ] 
-        self.bn = [nn.BatchNorm2d(size) for size in self.arc[1:] ]
+print(time.time() - start)
+print("creating model")
 
-        self.flat_dim = self.get_flat_dim()
-        
-        self.h = self.flat_dim[0] * self.flat_dim[1] * self.flat_dim[2]
+load = False
 
-        print(self.h)
-
-        latent  = 10
-        
-        self.output = nn.Linear(self.h, latent)
-        
-        self.dist_layer = nn.Linear(latent, 1)
-    
-    def get_flat_dim(self):
-        x = Variable(torch.randn(16, 1, 28, 28))
-
-        x = F.relu(self.dropout[0](self.conv_layers[0](x)))
-        x = F.max_pool2d(x,2)
-        x = F.relu(self.dropout[1](self.conv_layers[1](x)))
-        x = F.relu(self.dropout[2](self.conv_layers[2](x)))
-        x = F.max_pool2d(x,2)
-        x = F.relu(self.dropout[3](self.conv_layers[3](x)))
-
-        x = F.avg_pool2d(x,2)
-
-        return (x.size()[1:])
-    
-    def forward(self,x):
-
-        x = F.relu(self.dropout[0](self.bn[0](self.conv_layers[0](x))))
-        x = F.max_pool2d(x,2)
-        x = F.relu(self.dropout[1](self.bn[1](self.conv_layers[1](x))))
-        x = F.relu(self.dropout[2](self.bn[2](self.conv_layers[2](x))))
-        x = F.max_pool2d(x,2)
-        x = F.relu(self.dropout[3](self.bn[3](self.conv_layers[3](x))))
-
-        x = F.avg_pool2d(x,2)
-        
-        x = x.view(-1, x.size()[1] * x.size()[2] * x.size()[3])
-        
-        return self.output(x)
-    
-    def cost(self,x1,x2,y):
-
-        mask = Variable(y.float())
-        mask = mask.unsqueeze(1)
-        
-        z1 = model(x1)
-        z2 = model(x2)
-
-        P = F.sigmoid(self.dist_layer((z1-z2).abs()))
-         
-        L = mask* torch.log(P) + (1-mask) * torch.log(1-P)
-    
-        return((-L).mean())
-    
- 
-    def predict_prob(self,x1,x2,y):
-
-        mask = Variable(y.float())
-                
-        mask = mask
-        
-        z1 = model(x1)
-        z2 = model(x2)
-        
-        P = F.sigmoid(self.dist_layer((z1-z2).abs()))
-        P = P.squeeze()
-        
-
-        prob_same =  P[mask.byte()] 
-        
-        prob_diff  = (1-P)[(1-mask).byte()]
-
-        return prob_same.data.numpy() , prob_diff.data.numpy()
-
-load= True
-
-if not load:
-
-    print("Creating Model")
-    model = SiameseNN()
-    model = GRU_Model()
-
-
-else:
-    print("Loading Model")
+'''
+if load:
     model = torch.load('model.p')
+else:
+    model = GRU_Model(h,glove,num_out=100)
+'''
 
+model = GRU_Model(h,glove,100,int(y.max()+1))
 
-
-params = list(model.parameters())
-
-for conv in model.conv_layers:
-    params += conv.parameters()
+params = model.params
 
 opt = optim.Adam(params, lr=0.001)
     
 print("Beginning Traiing")
+
 
 def train():
     
@@ -159,16 +70,17 @@ def train():
     model.train()
     start = time.time()
 
-    X1_train, X2_train, y_train , length = newDataset(np.expand_dims(train_loader.dataset.train_data.numpy() ,axis=1) / 255., train_loader.dataset.train_labels.numpy())
-
+    X1_train, X2_train, y_train , length = newDataset(features.numpy(), 
+                                                      y.numpy())
+    
     for i in range(length):
             
-        #data1, data2 ,target = train_loader.getBatch()
         data1, data2 ,target = getBatch(X1_train,X2_train,y_train,i)
 
-        data1 = Variable(data1)
-        data2 = Variable(data2)
-
+        data1 = Variable(data1.long())
+        data2 = Variable(data2.long())
+        target = Variable(target.float())
+        
         opt.zero_grad()
         
         loss = model.cost(data1,data2,target)
@@ -190,17 +102,17 @@ def test():
     prob_same = []
     prob_diff = []
 
-    X1_test, X2_test, y_test , length = newDataset(np.expand_dims(test_loader.dataset.test_data.numpy() ,axis=1) / 255., test_loader.dataset.test_labels.numpy())
+    X1_test, X2_test, y_test , length = newDataset(test_loader.dataset.data_tensor.numpy(),
+                                                   test_loader.dataset.target_tensor.numpy())
 
 
     for i in range(length):
          
         data1, data2 ,target = getBatch(X1_test,X2_test,y_test,i)
-        #data1,data2,target =  test_loader.getBatch()
 
-        data1 = Variable(data1)
-        data2 = Variable(data2)
-
+        data1 = Variable(data1.long())
+        data2 = Variable(data2.long())
+        
         loss = model.cost(data1,data2,target)
         
         p_same,p_diff  = model.predict_prob(data1,data2,target)
@@ -220,10 +132,10 @@ def test():
     print("TESTING loss: ", (avg_loss / length ).data[0] , ' time: ' , time.time() - start)
     print("Prob Same: "  ,prob_same.mean(), " Acc Same " , acc_same , "  Prob Diff: " , prob_diff.mean() , " Acc Diff:  " , acc_diff )
 
-#for i in range(10):
 
-#    train()
-#    test()
+for i in range(10):
+
+    train()
+    test()
     
-
-#torch.save(model,open('model.p','wb'))
+    torch.save(model,open('artist_model.p','wb'))
