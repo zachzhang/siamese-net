@@ -136,8 +136,45 @@ def test():
     print("Prob Same: "  ,prob_same.mean(), " Acc Same " , acc_same , "  Prob Diff: " , prob_diff.mean() , " Acc Diff:  " , acc_diff )
 
 
-for i in range(1):
 
-    train()
-    test()
-    torch.save(model,open('artist_model.p','wb'))
+def accuracy():
+
+    #representation of all training points
+    num_batches = features_train.shape[0] // 64
+    #u1 = np.zeros( ( num_batches * 64 , 100) )
+
+    u1 = Variable(torch.ones(num_batches * 64 , 100))
+
+    for i in range(num_batches):
+
+        x = Variable(torch.from_numpy(features_train[ i*64: (i+1)*64 ]))
+
+        #u1[ i*64: (i+1)*64 ] = model.forward(x).data.numpy()
+        u1[i * 64: (i + 1) * 64] = model.forward(x)
+
+
+    y_hat = np.zeros(features_test.shape[0])
+
+    for j in range(features_test.shape[0]):
+
+        x = Variable(torch.from_numpy(features_test[ j ]))
+
+        y_hat[j] = model.predict( u1, x, Y_train)
+
+    #representation of all testing points
+    #num_batches = features_test.shape[0] // 64
+    #u2 = np.zeros( ( num_batches * 64 , 100) )
+
+    #for i in range(num_batches):
+
+    #   x = Variable(torch.from_numpy(features_test[ i*64: (i+1)*64 ]))
+    #   u2[ i*64: (i+1)*64 ] = model.forward(x).data.numpy()
+
+
+accuracy()
+
+#for i in range(1):
+
+#    train()
+#    test()
+#    torch.save(model,open('artist_model.p','wb'))

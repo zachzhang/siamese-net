@@ -68,7 +68,21 @@ class GRU_Model(nn.Module):
 
         return prob_same.data.numpy() , prob_diff.data.numpy()
         
-    
+
+    def predict(self, z1, x, y):
+
+        z2 = self.forward(x)
+        z2 = z2.expand_as(z1)
+
+        P = F.sigmoid(self.dist_layer((z1 - z2).abs()))
+
+        argmax = torch.max(P,0)[1].data.numpy()[0,0]
+
+        return y[argmax]
+
+
+
+
 class CNN(nn.Module):
 
     def __init__(self,glove,num_out,seq_len):
