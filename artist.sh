@@ -4,13 +4,14 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --job-name=zachzhang
-#SBATCH --time=2:00:00
+#SBATCH --time=12:00:00
 
 
 module purge
-module load python3/intel/3.5.2
+module load scikit-learn/intel/0.18.1
 module load pytorch/intel/20170125
 
 cd /home/zz1409/siamese-net
 
-python siamese_net.py
+python artist_recognizer.py
+

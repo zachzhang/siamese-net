@@ -17,7 +17,7 @@ class GRU_Model(nn.Module):
         self.embed = nn.Embedding(glove.size()[0], glove.size()[1], padding_idx=0 )
         self.embed.weight = nn.Parameter(glove )
 
-        self.gru = nn.GRU(glove.size()[1], h, 1, batch_first=True)
+        self.gru = nn.GRU(glove.size()[1], h, 1, batch_first=True , dropout= .5)
 
         self.output_layer = nn.Linear(h, embed_dim,bias=False)
         self.dist_layer = nn.Linear(embed_dim, 1,bias=False)
@@ -39,7 +39,6 @@ class GRU_Model(nn.Module):
 
     def cost(self,x1,x2,y):
 
-        #mask = Variable(y.float())
         mask = y
         mask = mask.unsqueeze(1)
         
@@ -55,7 +54,7 @@ class GRU_Model(nn.Module):
  
     def predict_prob(self,x1,x2,y):
 
-        mask = Variable(y.float())
+        mask = y
                         
         z1 = self.forward(x1)
         z2 = self.forward(x2)

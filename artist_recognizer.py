@@ -23,7 +23,7 @@ from sklearn.metrics import hamming_loss
 
 n = 20000
 seq_len = 80
-h = 256
+h = 512
 num_tags = 100
 batch_size = 64
 
@@ -43,19 +43,21 @@ glove = torch.from_numpy(glove)
 
 train_idx = int(np.floor(features.size()[0] * 8 / 10))
 
+features_train =features[ :train_idx] 
+Y_train = y[ :train_idx]
+
+features_test = features[ train_idx: ]
+Y_test = y[train_idx:]
+
 print(time.time() - start)
 print("creating model")
 
-load = False
+load = True
 
-'''
 if load:
-    model = torch.load('model.p')
+    model = torch.load('artist_model.p')
 else:
-    model = GRU_Model(h,glove,num_out=100)
-'''
-
-model = GRU_Model(h,glove,100,int(y.max()+1))
+    model = GRU_Model(h,glove,100,int(y.max()+1))
 
 params = model.params
 
@@ -70,9 +72,9 @@ def train():
     model.train()
     start = time.time()
 
-    X1_train, X2_train, y_train , length = newDataset(features.numpy(), 
-                                                      y.numpy())
-    
+    X1_train, X2_train, y_train , length = newDataset(features_train.numpy(), 
+                                                      Y_train.numpy())
+
     for i in range(length):
             
         data1, data2 ,target = getBatch(X1_train,X2_train,y_train,i)
@@ -102,8 +104,8 @@ def test():
     prob_same = []
     prob_diff = []
 
-    X1_test, X2_test, y_test , length = newDataset(test_loader.dataset.data_tensor.numpy(),
-                                                   test_loader.dataset.target_tensor.numpy())
+    X1_test, X2_test, y_test , length = newDataset(features_test.numpy(),
+                                                   Y_test.numpy())
 
 
     for i in range(length):
@@ -112,6 +114,7 @@ def test():
 
         data1 = Variable(data1.long())
         data2 = Variable(data2.long())
+        target = Variable(target.float())
         
         loss = model.cost(data1,data2,target)
         
@@ -133,9 +136,8 @@ def test():
     print("Prob Same: "  ,prob_same.mean(), " Acc Same " , acc_same , "  Prob Diff: " , prob_diff.mean() , " Acc Diff:  " , acc_diff )
 
 
-for i in range(10):
+for i in range(1):
 
     train()
     test()
-    
     torch.save(model,open('artist_model.p','wb'))

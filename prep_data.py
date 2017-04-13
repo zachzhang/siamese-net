@@ -28,7 +28,7 @@ batch_size = 64
 dtype = torch.cuda.FloatTensor
 
 # load all lyric data into pandas dataframe
-df = pd.read_csv('/Users/Hadoop/Desktop/LyricScraper/SongTagger/lyric_data.csv', index_col=0)
+df = pd.read_csv('/home/zz1409/SongTagger/lyric_data.csv', index_col=0)
 
 # Sometimes the API returns an error message rather than actual lyrics. This removes it
 bad_song = df['lyrics'].value_counts().index[0]
@@ -61,8 +61,10 @@ features = np.array(list(features))
 
 y = df['label'].values
 
-np.save('features.npy',features)
-np.save('y.npy',y)
+shuffle= np.random.permutation(features.shape[0])
+
+np.save('features.npy',features[shuffle])
+np.save('y.npy',y[shuffle])
 np.save('glove.npy',glove)
 
 
